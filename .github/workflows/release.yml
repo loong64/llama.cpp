@@ -13,6 +13,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     outputs:
+      APP_BUILD: ${{ steps.check-release.outputs.build }}
       APP_VERSION: ${{ steps.get-version.outputs.APP_VERSION }}
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +38,7 @@ jobs:
         id: check-release
         run: |
           gh release view ${APP_VERSION} -R ${{ github.repository }} >/dev/null 2>&1 || echo "create=1" >> $GITHUB_OUTPUT
+          gh release view ${APP_VERSION} -R ${{ github.repository }} | grep ${{ env.APP_NAME }}-.* >/dev/null 2>&1 || echo "build=1" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -57,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     container: debian:trixie
     needs: check
+    if: needs.check.outputs.APP_BUILD == '1'
     env:
         APP_VERSION: ${{ needs.check.outputs.APP_VERSION }}
 
@@ -113,13 +116,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: llama-${{ env.APP_VERSION }}-bin-debian-loong64.zip
-          name: llama-bin-debian-loong64.zip
-
+          name: llama-bin-debian-loong64
 
   debian-13-loongarch64-vulkan-cross:
     runs-on: ubuntu-latest
     container: debian:trixie
     needs: check
+    if: needs.check.outputs.APP_BUILD == '1'
     env:
         APP_VERSION: ${{ needs.check.outputs.APP_VERSION }}
 
@@ -143,6 +146,7 @@ jobs:
 
           apt-get install -y --no-install-recommends \
                   build-essential \
+                  cmake \
                   glslc \
                   gcc-14-loongarch64-linux-gnu \
                   g++-14-loongarch64-linux-gnu \
@@ -178,11 +182,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: llama-${{ env.APP_VERSION }}-bin-debian-vulkan-loong64.zip
-          name: llama-bin-debian-vulkan-loong64.zip
+          name: llama-bin-debian-vulkan-loong64
 
   release:
     runs-on: ubuntu-latest
     needs: [check, debian-13-loongarch64-cpu-cross, debian-13-loongarch64-vulkan-cross]
+    if: needs.check.outputs.APP_BUILD == '1'
     env:
       APP_VERSION: ${{ needs.check.outputs.APP_VERSION }}
     steps:
@@ -196,8 +201,8 @@ jobs:
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ env.APP_NAME }}
-          tag_name: ${{ env.APP_NAME }}
+          name: ${{ env.APP_VERSION }}
+          tag_name: ${{ env.APP_VERSION }}
           files: dist/*
           draft: false
           prerelease: false
