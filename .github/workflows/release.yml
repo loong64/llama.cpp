@@ -8,15 +8,16 @@ on:
 env:
   APP_NAME: llama
   REPO_NAME: ggml-org/llama.cpp
+  CMAKE_ARGS: "-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON"
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     outputs:
       APP_BUILD: ${{ steps.check-release.outputs.build }}
       APP_VERSION: ${{ steps.get-version.outputs.APP_VERSION }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Get Version
         id: get-version
@@ -37,196 +38,67 @@ jobs:
       - name: Check Release
         id: check-release
         run: |
-          gh release view ${APP_VERSION} -R ${{ github.repository }} >/dev/null 2>&1 || echo "create=1" >> $GITHUB_OUTPUT
           gh release view ${APP_VERSION} -R ${{ github.repository }} | grep ${{ env.APP_NAME }}-.* >/dev/null 2>&1 || echo "build=1" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Tag
-        if : steps.check-release.outputs.create == '1'
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Release ${APP_VERSION}" || true
-          git tag ${APP_VERSION} || true
-          git push origin ${APP_VERSION}  || true
-          git push origin HEAD:main || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  debian-13-loongarch64-cpu-cross:
+  build:
     runs-on: ubuntu-latest
-    container: debian@sha256:653dfb9f86c3782e8369d5f7d29bb8faba1f4bff9025db46e807fa4c22903671
     needs: check
     if: needs.check.outputs.APP_BUILD == '1'
     env:
         APP_VERSION: ${{ needs.check.outputs.APP_VERSION }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - uses: docker/build-push-action@v7
         with:
-          repository: ${{ env.REPO_NAME }}
-          ref: ${{ env.APP_VERSION }}
-      - name: Setup LoongArch
-        run: |
-          rm -f /etc/apt/sources.list.d/*
-          cat << EOF | tee /etc/apt/sources.list.d/debian-ports.list
-          deb http://snapshot.debian.org/archive/debian/20250515T202920Z/ trixie main
-          EOF
-          ( echo 'quiet "true";'; \
-            echo 'APT::Get::Assume-Yes "true";'; \
-            echo 'APT::Install-Recommends "false";'; \
-            echo 'Acquire::Check-Valid-Until "false";'; \
-            echo 'Acquire::Retries "5";'; \
-          ) > /etc/apt/apt.conf.d/99snapshot-repos
-
-          apt-get update
-          apt-get install -y ca-certificates debian-ports-archive-keyring git zip
-          dpkg --add-architecture loong64
-
-          # Add arch-specific repositories for non-amd64 architectures
-          cat << EOF | tee /etc/apt/sources.list.d/loong64-ports.list
-          deb [arch=loong64] http://snapshot.debian.org/archive/debian-ports/20250515T194251Z/ sid main
-          EOF
-
-          apt-get update || true    ;# Prevent failure due to missing URLs.
-
-          apt-get install -y --no-install-recommends \
-                  build-essential \
-                  cmake \
-                  gcc-14-loongarch64-linux-gnu \
-                  g++-14-loongarch64-linux-gnu \
-                  libcurl4-openssl-dev:loong64
-
-      - name: Build
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-                         -DGGML_OPENMP=OFF \
-                         -DLLAMA_BUILD_EXAMPLES=ON \
-                         -DLLAMA_BUILD_TOOLS=ON \
-                         -DLLAMA_BUILD_TESTS=OFF \
-                         -DCMAKE_SYSTEM_NAME=Linux \
-                         -DCMAKE_SYSTEM_PROCESSOR=loongarch64 \
-                         -DCMAKE_C_COMPILER=loongarch64-linux-gnu-gcc-14 \
-                         -DCMAKE_CXX_COMPILER=loongarch64-linux-gnu-g++-14 \
-                         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                         -DCMAKE_FIND_ROOT_PATH=/usr/lib/loongarch64-linux-gnu \
-                         -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                         -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH
-
-          cmake --build build --config Release -j $(nproc)
-      
-      - name: Pack artifacts
-        run: |
-          cp LICENSE ./build/bin/
-          zip -r llama-${{ env.APP_VERSION }}-bin-debian-loong64.zip ./build/bin/*
+          context: .
+          platforms: linux/loong64
+          load: true
+          push: false
+          build-args: |
+            VERSION=${{ env.APP_VERSION }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.APP_NAME }}:${{ env.APP_VERSION }}
+          outputs: type=local,dest=./
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          path: llama-${{ env.APP_VERSION }}-bin-debian-loong64.zip
+          path: dist/
           name: llama-bin-debian-loong64
 
-  debian-13-loongarch64-vulkan-cross:
-    runs-on: ubuntu-latest
-    container: debian@sha256:653dfb9f86c3782e8369d5f7d29bb8faba1f4bff9025db46e807fa4c22903671
-    needs: check
-    if: needs.check.outputs.APP_BUILD == '1'
-    env:
-        APP_VERSION: ${{ needs.check.outputs.APP_VERSION }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ env.REPO_NAME }}
-          ref: ${{ env.APP_VERSION }}
-      - name: Setup LoongArch
-        run: |
-          rm -f /etc/apt/sources.list.d/*
-          cat << EOF | tee /etc/apt/sources.list.d/debian-ports.list
-          deb http://snapshot.debian.org/archive/debian/20250515T202920Z/ trixie main
-          EOF
-          ( echo 'quiet "true";'; \
-            echo 'APT::Get::Assume-Yes "true";'; \
-            echo 'APT::Install-Recommends "false";'; \
-            echo 'Acquire::Check-Valid-Until "false";'; \
-            echo 'Acquire::Retries "5";'; \
-          ) > /etc/apt/apt.conf.d/99snapshot-repos
-
-          apt-get update
-          apt-get install -y ca-certificates debian-ports-archive-keyring git zip
-          dpkg --add-architecture loong64
-
-          # Add arch-specific repositories for non-amd64 architectures
-          cat << EOF | tee /etc/apt/sources.list.d/loong64-ports.list
-          deb [arch=loong64] http://snapshot.debian.org/archive/debian-ports/20250515T194251Z/ sid main
-          EOF
-
-          apt-get update || true    ;# Prevent failure due to missing URLs.
-
-          apt-get install -y --no-install-recommends \
-                  build-essential \
-                  cmake \
-                  glslc \
-                  gcc-14-loongarch64-linux-gnu \
-                  g++-14-loongarch64-linux-gnu \
-                  libvulkan-dev:loong64 \
-                  libcurl4-openssl-dev:loong64
-
-      - name: Build
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-                         -DGGML_VULKAN=ON \
-                         -DGGML_OPENMP=OFF \
-                         -DLLAMA_BUILD_EXAMPLES=ON \
-                         -DLLAMA_BUILD_TOOLS=ON \
-                         -DLLAMA_BUILD_TESTS=OFF \
-                         -DCMAKE_SYSTEM_NAME=Linux \
-                         -DCMAKE_SYSTEM_PROCESSOR=loongarch64 \
-                         -DCMAKE_C_COMPILER=loongarch64-linux-gnu-gcc-14 \
-                         -DCMAKE_CXX_COMPILER=loongarch64-linux-gnu-g++-14 \
-                         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                         -DCMAKE_FIND_ROOT_PATH=/usr/lib/loongarch64-linux-gnu \
-                         -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                         -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH
-
-          cmake --build build --config Release -j $(nproc)
-      
-      - name: Pack artifacts
-        run: |
-          cp LICENSE ./build/bin/
-          zip -r llama-${{ env.APP_VERSION }}-bin-debian-vulkan-loong64.zip ./build/bin/*
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          path: llama-${{ env.APP_VERSION }}-bin-debian-vulkan-loong64.zip
-          name: llama-bin-debian-vulkan-loong64
-
   release:
-    runs-on: ubuntu-latest
-    needs: [check, debian-13-loongarch64-cpu-cross, debian-13-loongarch64-vulkan-cross]
+    runs-on: ubuntu-slim
+    needs: [check, build]
     if: needs.check.outputs.APP_BUILD == '1'
     env:
       APP_VERSION: ${{ needs.check.outputs.APP_VERSION }}
     steps:
+      - uses: actions/checkout@v6
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: llama-bin-*
           merge-multiple: true
 
-      - name: GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ env.APP_VERSION }}
-          tag_name: ${{ env.APP_VERSION }}
-          files: dist/*
-          draft: false
-          prerelease: false
+      - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${{ env.APP_VERSION }}"
+          gh release create "${TAG_NAME}" \
+            --generate-notes \
+            --title "${TAG_NAME}" \
+            dist/*
