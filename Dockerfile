@@ -38,6 +38,7 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 		-DGGML_BACKEND_DL=ON \
 		-DGGML_NATIVE=OFF \
 		-DLLAMA_FATAL_WARNINGS=ON \
+		-DHF_UI_VERSION=${VERSION} \
 		${CMAKE_ARGS} \
 	; \
 	cmake --build build --config Release -j $(nproc);\
