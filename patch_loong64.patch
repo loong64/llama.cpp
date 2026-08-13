@@ -1,0 +1,99 @@
+diff --git a/ggml/src/CMakeLists.txt b/ggml/src/CMakeLists.txt
+index 82e9480..bd4cc19 100644
+--- a/ggml/src/CMakeLists.txt
++++ b/ggml/src/CMakeLists.txt
+@@ -361,6 +361,14 @@ function(ggml_add_cpu_backend_variant tag_name)
+         foreach (feat ${ARGN})
+             set(GGML_INTERNAL_${feat} ON)
+         endforeach()
++    elseif (GGML_SYSTEM_ARCH STREQUAL "loongarch64")
++        foreach (feat LASX LSX)
++            set(GGML_${feat} OFF)
++        endforeach()
++
++        foreach (feat ${ARGN})
++            set(GGML_${feat} ON)
++        endforeach()
+     endif()
+ 
+     ggml_add_cpu_backend_variant_impl(${tag_name})
+@@ -463,6 +471,14 @@ if (GGML_CPU_ALL_VARIANTS)
+         else()
+             message(FATAL_ERROR "Unsupported RISC-V target OS: ${CMAKE_SYSTEM_NAME}")
+         endif()
++    elseif (GGML_SYSTEM_ARCH STREQUAL "loongarch64")
++        if (CMAKE_SYSTEM_NAME MATCHES "Linux")
++            ggml_add_cpu_backend_variant(loongarch64_0)
++            ggml_add_cpu_backend_variant(loongarch64_lsx  LSX)
++            ggml_add_cpu_backend_variant(loongarch64_lasx LASX)
++        else()
++            message(FATAL_ERROR "Unsupported loongarch64 target OS: ${CMAKE_SYSTEM_NAME}")
++        endif()
+     else()
+         message(FATAL_ERROR "GGML_CPU_ALL_VARIANTS not yet supported with ${GGML_SYSTEM_ARCH} on ${CMAKE_SYSTEM_NAME}")
+     endif()
+diff --git a/ggml/src/ggml-cpu/CMakeLists.txt b/ggml/src/ggml-cpu/CMakeLists.txt
+index 836bae4..26edd8e 100644
+--- a/ggml/src/ggml-cpu/CMakeLists.txt
++++ b/ggml/src/ggml-cpu/CMakeLists.txt
+@@ -435,6 +435,18 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
+         if (GGML_LSX)
+             list(APPEND ARCH_FLAGS -mlsx)
+         endif()
++        if (GGML_CPU_ALL_VARIANTS)
++            set(ARCH_DEFINITIONS "")
++
++            if (GGML_LASX)
++                list(APPEND ARCH_DEFINITIONS GGML_USE_LASX)
++            endif()
++            if (GGML_LSX)
++                list(APPEND ARCH_DEFINITIONS GGML_USE_LSX)
++            endif()
++
++            ggml_add_cpu_backend_features(${GGML_CPU_NAME} loongarch ${ARCH_DEFINITIONS})
++        endif()
+     elseif (GGML_SYSTEM_ARCH STREQUAL "riscv64")
+         message(STATUS "riscv64 detected")
+         list(APPEND GGML_CPU_SOURCES
+diff --git a/ggml/src/ggml-cpu/arch/loongarch/cpu-feats.cpp b/ggml/src/ggml-cpu/arch/loongarch/cpu-feats.cpp
+new file mode 100644
+index 0000000..f0c42da
+--- /dev/null
++++ b/ggml/src/ggml-cpu/arch/loongarch/cpu-feats.cpp
+@@ -0,0 +1,36 @@
++#include "ggml-backend-impl.h"
++
++#if defined(__loongarch64) && defined(__linux__)
++#include <sys/auxv.h>
++
++struct loongarch64_features {
++    bool has_lsx  = false;
++    bool has_lasx = false;
++
++    loongarch64_features() {
++        const unsigned long hwcap = getauxval(AT_HWCAP);
++        has_lsx  = hwcap & HWCAP_LOONGARCH_LSX;
++        has_lasx = hwcap & HWCAP_LOONGARCH_LASX;
++    }
++};
++
++static int ggml_backend_cpu_loongarch64_score() {
++    int score = 1;
++    loongarch64_features lf;
++
++#ifdef GGML_USE_LSX
++    if (!lf.has_lsx) { return 0; }
++    score += 1 << 1;
++#endif
++
++#ifdef GGML_USE_LASX
++    if (!lf.has_lasx) { return 0; }
++    score += 1 << 2;
++#endif
++
++    return score;
++}
++
++GGML_BACKEND_DL_SCORE_IMPL(ggml_backend_cpu_loongarch64_score)
++
++#endif  // defined(__loongarch64) && defined(__linux__)

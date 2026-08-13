@@ -27,6 +27,10 @@ RUN set -eux; \
 	mkdir -p /dist; \
 	git clone --depth 1 -b ${VERSION} https://github.com/ggml-org/llama.cpp /data/llama.cpp
 
+ADD patch_loong64.patch /data
+RUN set -eux; \
+	git apply /data/patch_loong64.patch
+
 FROM base AS build-cpu
 
 # build cpu
@@ -37,6 +41,7 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 		-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
 		-DGGML_BACKEND_DL=ON \
 		-DGGML_NATIVE=OFF \
+		-DGGML_CPU_ALL_VARIANTS=ON \
 		-DLLAMA_FATAL_WARNINGS=ON \
 		-DHF_UI_VERSION=${VERSION} \
 		${CMAKE_ARGS} \
@@ -68,6 +73,7 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 		-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
 		-DGGML_BACKEND_DL=ON \
 		-DGGML_NATIVE=OFF \
+		-DGGML_CPU_ALL_VARIANTS=ON \
 		-DGGML_VULKAN=ON \
 		${CMAKE_ARGS} \
 	; \
