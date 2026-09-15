@@ -11,13 +11,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 		build-essential \
 		cmake \
 		git \
+		git-lfs \
 		libssl-dev \
 	; \
 	apt-get install -y gcc-14 g++-14; \
 	apt-get dist-clean
 
 ENV CC=gcc-14 CXX=g++-14
-ENV CMAKE_ARGS="-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON"
+ENV CMAKE_ARGS="-DLLAMA_BUILD_IS_DEV=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON"
 
 ARG VERSION
 ENV VERSION=${VERSION}
@@ -25,7 +26,7 @@ WORKDIR /data/llama.cpp
 
 RUN set -eux; \
 	mkdir -p /dist; \
-	git clone --recursive --depth 1 -b ${VERSION} https://github.com/ggml-org/llama.cpp /data/llama.cpp
+	git clone --depth=1 -b ${VERSION} https://github.com/ggml-org/llama.cpp /data/llama.cpp
 
 ADD patch_loong64.patch /data
 RUN set -eux; \
