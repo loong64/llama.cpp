@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 	apt-get dist-clean
 
 ENV CC=gcc-14 CXX=g++-14
-ENV CMAKE_ARGS="-DLLAMA_BUILD_IS_DEV=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON"
+ENV CMAKE_ARGS="-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DGGML_RPC=ON -DLLAMA_CONNECT=ON"
 
 ARG VERSION
 ENV VERSION=${VERSION}
@@ -33,7 +33,7 @@ RUN set -eux; \
 	git apply /data/patch_loong64.patch
 
 # https://github.com/ggml-org/llama.cpp/blob/master/.github/workflows/ui-build.yml
-ADD tools/ui/dist tools/ui/dist
+ADD ui/apps/chat/dist ui/apps/chat/dist
 
 FROM base AS build-cpu
 
